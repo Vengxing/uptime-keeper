@@ -5,7 +5,11 @@ Small Go service for a VPS. It discovers listening ports and Docker containers, 
 ## Setup (about 5 minutes)
 
 1. **Telegram bot**: talk to @BotFather, `/newbot`, copy the token.
-2. **Self-down alert** (recommended): sign up free at healthchecks.io, create a check with period 1 min / grace 1 min, add the Telegram integration, copy the ping URL. If the watcher or the VPS dies, pings stop and healthchecks messages you.
+2. **Self-down alert** (recommended): this is what tells you if the watcher or the VPS dies.
+   - Sign up free at healthchecks.io and click **Add Check**: period 1 min, grace 1 min.
+   - **Integrations** > add **Telegram** and link your chat (without this it won't message you).
+   - Copy the check's ping URL, like `https://hc-ping.com/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`. This is your `healthchecks_url` / `HEALTHCHECKS_URL`. Use it plain, the watcher adds `/fail` itself on shutdown.
+   - The watcher pings it every loop. If pings stop, Healthchecks messages you.
 3. On the VPS (installs Go if missing, builds, installs the systemd service, starts it; asks for the token/URL on first run):
    ```
    git clone <your-repo> && cd uptime-keeper && sudo ./setup.sh
