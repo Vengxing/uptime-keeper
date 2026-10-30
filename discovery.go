@@ -56,3 +56,24 @@ func dirBase(dir string) string {
 	}
 	return filepath.Base(dir)
 }
+
+type ProcInfo struct {
+	PID  int
+	Comm string
+	Cmd  string
+	Dir  string
+}
+
+// Name is the process's working-directory name, falling back to the command name.
+func (p ProcInfo) Name() string {
+	if d := dirBase(p.Dir); d != "" {
+		return d
+	}
+	return p.Comm
+}
+
+var ignoredComm = map[string]bool{
+	"bash": true, "sh": true, "zsh": true, "fish": true, "dash": true, "sudo": true, "su": true,
+	"ssh": true, "sshd": true, "tmux": true, "screen": true, "login": true, "systemd": true,
+	"journalctl": true, "less": true, "vim": true, "nano": true, "top": true, "htop": true,
+}

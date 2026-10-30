@@ -108,6 +108,11 @@ func (b *Bot) Alert(ctx context.Context, text, key string) {
 	b.Send(ctx, text, keyboard([][]button{{{"Details", "d:" + key}}}))
 }
 
+// NewPortAlert announces a newly listening port with a one-tap Watch button.
+func (b *Bot) NewPortAlert(ctx context.Context, text string, port int) {
+	b.Send(ctx, text, keyboard([][]button{{{"✅ Watch :" + strconv.Itoa(port), "n:" + portKey(port)}}}))
+}
+
 type update struct {
 	ID      int `json:"update_id"`
 	Message *struct {
@@ -134,6 +139,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) {
 	cmds := []map[string]string{
 		{"command": "ports", "description": "Listening ports (tap to watch)"},
 		{"command": "docker", "description": "Docker containers (tap to watch)"},
+		{"command": "bots", "description": "Processes / Telegram bots (tap to watch)"},
 		{"command": "watching", "description": "What is being watched"},
 		{"command": "status", "description": "One-line summary"},
 		{"command": "help", "description": "All commands"},
@@ -210,11 +216,12 @@ func (b *Bot) rawSend(ctx context.Context, chat int64, text string) {
 const helpText = `<b>Commands</b>
 /ports - listening ports (tap to watch/unwatch)
 /docker - containers (tap to watch/unwatch)
+/bots - running processes such as Telegram bots (tap to watch/unwatch)
 /watching - what alerts you, with state
 /status - one-line summary
-/watch &lt;port|container&gt;
-/unwatch &lt;port|container&gt;
-/name &lt;port|container&gt; &lt;label&gt;  (use - to clear)`
+/watch &lt;port|container|process&gt;
+/unwatch &lt;port|container|process&gt;
+/name &lt;port|container|process&gt; &lt;label&gt;  (use - to clear)`
 
 func (b *Bot) command(ctx context.Context, msg string) (string, markup) {
 	f := strings.Fields(msg)
@@ -233,6 +240,8 @@ func (b *Bot) command(ctx context.Context, msg string) (string, markup) {
 		return b.portsView(ctx)
 	case "/docker":
 		return b.dockerView(ctx)
+	case "/bots", "/procs":
+		return b.procsView(ctx)
 	case "/watching":
 		return b.watchingView(ctx)
 	case "/status":
@@ -249,6 +258,9 @@ func (b *Bot) command(ctx context.Context, msg string) (string, markup) {
 		}
 		if key == "" {
 			key = dockerKey(args[0])
+			if b.isWatched(procKey(args[0])) {
+				key = procKey(args[0])
+			}
 		}
 		switch cmd {
 		case "/watch":
@@ -295,10 +307,10 @@ func resolveTarget(arg string, s Snapshot) (string, string) {
 	if _, ok := s.container(arg); ok {
 		return dockerKey(arg), ""
 	}
-	if s.DockerErr != nil {
-		return "", "Docker unavailable: " + s.DockerErr.Error()
+	if _, ok := s.proc(arg); ok {
+		return procKey(arg), ""
 	}
-	return "", "No such container: " + arg
+	return "", "No such container or process: " + arg + " (see /docker and /bots)"
 }
 
 func (b *Bot) isWatched(key string) bool {
@@ -403,6 +415,75 @@ func (b *Bot) dockerView(ctx context.Context) (string, markup) {
 	if row != nil {
 		rows = append(rows, row)
 	}
+	return sb.String(), keyboard(rows)
+}
+
+func (b *Bot) procsView(ctx context.Context) (string, markup) {
+	s := b.eng.Snapshot(ctx)
+	type group struct {
+		name  string
+		n     int
+		first ProcInfo
+	}
+	groups := map[string]*group{}
+	for _, p := range s.Procs {
+		g := groups[p.Name()]
+		if g == nil {
+			g = &group{name: p.Name(), first: p}
+			groups[p.Name()] = g
+		}
+		g.n++
+	}
+	names := make([]string, 0, len(groups))
+	for n := range groups {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var sb strings.Builder
+	var rows [][]button
+	var row []button
+	fmt.Fprintf(&sb, "<b>Processes (%d)</b>\n", len(names))
+	listed := map[string]bool{}
+	addBtn := func(key, name string) {
+		row = append(row, toggleBtn(key, name, b.isWatched(key)))
+		if len(row) == 2 {
+			rows = append(rows, row)
+			row = nil
+		}
+	}
+	for _, n := range names {
+		g := groups[n]
+		listed[n] = true
+		key := procKey(n)
+		line := fmt.Sprintf("%s %s · %s", watchMark(b.isWatched(key)), esc(n), esc(g.first.Comm))
+		if g.n > 1 {
+			line += fmt.Sprintf(" ×%d", g.n)
+		}
+		sb.WriteString(line + "\n")
+		if len(rows) < 45 {
+			addBtn(key, n)
+		}
+	}
+	var missing []string
+	b.st.Read(func(d *Data) {
+		for k := range d.Watch {
+			if kind, id := parseKey(k); kind == "proc" && !listed[id] {
+				missing = append(missing, id)
+			}
+		}
+	})
+	sort.Strings(missing)
+	for _, id := range missing {
+		fmt.Fprintf(&sb, "🔴 %s (not running) ✅\n", esc(id))
+		addBtn(procKey(id), id)
+	}
+	if row != nil {
+		rows = append(rows, row)
+	}
+	if len(names) == 0 && len(missing) == 0 {
+		sb.WriteString("none found\n")
+	}
+	sb.WriteString("<i>Named by working directory. Bots that only poll Telegram open no port, so watch them here.</i>")
 	return sb.String(), keyboard(rows)
 }
 
@@ -524,6 +605,9 @@ func (b *Bot) callback(ctx context.Context, data string) (string, string, markup
 	switch action {
 	case "d":
 		return "", b.details(ctx, key), nil, false
+	case "n":
+		b.eng.AddWatch(ctx, key)
+		return "Watching", "✅ Watching " + esc(b.eng.Display(key, b.eng.Snapshot(ctx))) + " — " + b.stateOf(key), nil, true
 	case "w", "u":
 		if action == "w" {
 			b.eng.AddWatch(ctx, key)
@@ -532,9 +616,12 @@ func (b *Bot) callback(ctx context.Context, data string) (string, string, markup
 		}
 		var text string
 		var kb markup
-		if kind, _ := parseKey(key); kind == "docker" {
+		switch kind, _ := parseKey(key); kind {
+		case "docker":
 			text, kb = b.dockerView(ctx)
-		} else {
+		case "proc":
+			text, kb = b.procsView(ctx)
+		default:
 			text, kb = b.portsView(ctx)
 		}
 		toast := "Watching"

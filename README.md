@@ -26,11 +26,14 @@ Commands appear in Telegram's `/` menu (registered on every start).
 | Command | What it does |
 |---|---|
 | `/ports` | Listening ports with name and working dir. Tap to watch/unwatch (✅ = watched, ➖ = not watched; tap to flip) |
+| `/bots` | Running processes (named by working dir). Use this for Telegram bots and anything that opens no port |
 | `/docker` | Containers. Tap to watch/unwatch (✅ = watched, ➖ = not watched; tap to flip) |
 | `/watching` | Watchlist with state, tap for details |
 | `/status` | One-line summary |
 | `/watch <port or container>` / `/unwatch ...` | Manage the watchlist |
 | `/name <port or container> <label>` | Manual name (`-` clears) |
+
+**New ports:** when a port starts listening for the first time you get `🆕 name :port is now listening` with a **Watch** button. The first run only records what is already running, so you are not flooded.
 
 Names are auto-picked: your manual name, else the container name, else the process working-directory name, else the process name. Nothing alerts until you watch it.
 

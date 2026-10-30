@@ -104,3 +104,45 @@ func TestCheckPortAndTick(t *testing.T) {
 		t.Fatalf("repeat alert: %v", alerts)
 	}
 }
+
+func TestNewPortDetection(t *testing.T) {
+	st, _ := OpenStore(filepath.Join(t.TempDir(), "s.json"))
+	var got []int
+	eng := NewEngine(Config{FailThreshold: 1}, st, func(string, string) {})
+	eng.notifyNew = func(_ string, port int) { got = append(got, port) }
+	snap := func(ports ...int) Snapshot {
+		var s Snapshot
+		for _, p := range ports {
+			s.Ports = append(s.Ports, PortInfo{Port: p})
+		}
+		return s
+	}
+	eng.detectNewPorts(snap(22, 80)) // baseline
+	eng.detectNewPorts(snap(22, 80, 3000))
+	if len(got) != 0 {
+		t.Fatalf("must wait for a second sighting: %v", got)
+	}
+	eng.detectNewPorts(snap(22, 80, 3000))
+	eng.detectNewPorts(snap(22, 80, 3000))
+	if len(got) != 1 || got[0] != 3000 {
+		t.Fatalf("expected one alert for 3000, got %v", got)
+	}
+	eng.detectNewPorts(snap(22, 80))
+	eng.detectNewPorts(snap(22, 80, 3000))
+	eng.detectNewPorts(snap(22, 80, 3000))
+	if len(got) != 1 {
+		t.Fatalf("known port must not re-alert: %v", got)
+	}
+}
+
+func TestProcCheck(t *testing.T) {
+	st, _ := OpenStore(filepath.Join(t.TempDir(), "s.json"))
+	eng := NewEngine(Config{}, st, func(string, string) {})
+	s := Snapshot{Procs: []ProcInfo{{PID: 5, Comm: "python3", Dir: "/srv/my-bot"}}}
+	if ok, _ := eng.check("proc:my-bot", s); !ok {
+		t.Error("expected up")
+	}
+	if ok, _ := eng.check("proc:other", s); ok {
+		t.Error("expected down")
+	}
+}

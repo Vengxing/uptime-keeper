@@ -31,6 +31,7 @@ func main() {
 	var bot *Bot
 	eng := NewEngine(cfg, st, func(text, key string) { bot.Alert(ctx, text, key) })
 	bot = NewBot(cfg, eng, st)
+	eng.notifyNew = func(text string, port int) { bot.NewPortAlert(ctx, text, port) }
 
 	if cfg.HealthchecksURL == "" {
 		log.Println("warning: healthchecks_url not set, nobody will notice if this watcher dies")

@@ -37,6 +37,9 @@ type Watch struct {
 type Data struct {
 	Names map[string]string `json:"names"`
 	Watch map[string]*Watch `json:"watch"`
+	// Known holds every port ever seen listening; only unseen ports raise a "new port" alert.
+	Known     map[int]bool `json:"known"`
+	Baselined bool         `json:"baselined"`
 }
 
 type Store struct {
@@ -46,7 +49,7 @@ type Store struct {
 }
 
 func OpenStore(path string) (*Store, error) {
-	s := &Store{path: path, data: Data{Names: map[string]string{}, Watch: map[string]*Watch{}}}
+	s := &Store{path: path, data: Data{Names: map[string]string{}, Watch: map[string]*Watch{}, Known: map[int]bool{}}}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -59,6 +62,9 @@ func OpenStore(path string) (*Store, error) {
 	}
 	if s.data.Names == nil {
 		s.data.Names = map[string]string{}
+	}
+	if s.data.Known == nil {
+		s.data.Known = map[int]bool{}
 	}
 	if s.data.Watch == nil {
 		s.data.Watch = map[string]*Watch{}

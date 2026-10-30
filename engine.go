@@ -15,6 +15,7 @@ import (
 type Snapshot struct {
 	Ports      []PortInfo
 	Containers []Container
+	Procs      []ProcInfo
 	PortsErr   error
 	DockerErr  error
 }
@@ -29,6 +30,7 @@ const (
 
 func portKey(p int) string      { return "port:" + strconv.Itoa(p) }
 func dockerKey(n string) string { return "docker:" + n }
+func procKey(n string) string   { return "proc:" + n }
 
 func parseKey(key string) (kind, id string) {
 	i := strings.Index(key, ":")
@@ -77,12 +79,14 @@ func fmtDur(d time.Duration) string {
 }
 
 type Engine struct {
-	cfg    Config
-	st     *Store
-	docker *Docker
-	notify func(text, key string)
-	http   *http.Client
-	mu     sync.Mutex
+	notifyNew func(text string, port int)
+	pending   map[int]int
+	cfg       Config
+	st        *Store
+	docker    *Docker
+	notify    func(text, key string)
+	http      *http.Client
+	mu        sync.Mutex
 }
 
 func NewEngine(cfg Config, st *Store, notify func(text, key string)) *Engine {
@@ -94,6 +98,7 @@ func (e *Engine) Snapshot(ctx context.Context) Snapshot {
 	var s Snapshot
 	s.Ports, s.PortsErr = ScanPorts()
 	s.Containers, s.DockerErr = e.docker.List(ctx)
+	s.Procs = ScanProcs()
 	return s
 }
 
@@ -118,6 +123,15 @@ func (s Snapshot) port(port int) (PortInfo, bool) {
 		}
 	}
 	return PortInfo{}, false
+}
+
+func (s Snapshot) proc(name string) (ProcInfo, bool) {
+	for _, p := range s.Procs {
+		if p.Name() == name {
+			return p, true
+		}
+	}
+	return ProcInfo{}, false
 }
 
 func (s Snapshot) container(name string) (Container, bool) {
@@ -157,7 +171,7 @@ func (e *Engine) Label(key string, s Snapshot) string {
 		return manual
 	}
 	kind, id := parseKey(key)
-	if kind == "docker" {
+	if kind != "port" {
 		return id
 	}
 	port, _ := strconv.Atoi(id)
@@ -170,7 +184,7 @@ func (e *Engine) Label(key string, s Snapshot) string {
 func (e *Engine) Display(key string, s Snapshot) string {
 	kind, id := parseKey(key)
 	l := e.Label(key, s)
-	if kind == "docker" {
+	if kind != "port" {
 		if l != id {
 			return l + " (" + id + ")"
 		}
@@ -184,6 +198,12 @@ func (e *Engine) Display(key string, s Snapshot) string {
 
 func (e *Engine) check(key string, s Snapshot) (bool, string) {
 	kind, id := parseKey(key)
+	if kind == "proc" {
+		if _, ok := s.proc(id); ok {
+			return true, ""
+		}
+		return false, "process not running"
+	}
 	if kind == "docker" {
 		if s.DockerErr != nil {
 			return false, "docker unavailable: " + s.DockerErr.Error()
@@ -221,6 +241,12 @@ func (e *Engine) check(key string, s Snapshot) (bool, string) {
 
 func (e *Engine) recordSeen(w *Watch, key string, s Snapshot, now time.Time) {
 	kind, id := parseKey(key)
+	if kind == "proc" {
+		if p, ok := s.proc(id); ok {
+			w.Seen = SeenInfo{PID: p.PID, Proc: p.Comm, Cmd: p.Cmd, Dir: p.Dir, Label: id, At: now}
+		}
+		return
+	}
 	if kind == "docker" {
 		if c, ok := s.container(id); ok {
 			w.Seen = SeenInfo{Container: c.Name, Label: c.Name, Proc: c.Status, At: now}
@@ -239,6 +265,7 @@ func (e *Engine) Tick(ctx context.Context) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.Snapshot(ctx)
+	e.detectNewPorts(s)
 	var keys []string
 	e.st.Read(func(d *Data) {
 		for k := range d.Watch {
@@ -293,11 +320,66 @@ func (e *Engine) Tick(ctx context.Context) {
 	}
 }
 
+// detectNewPorts announces ports that start listening for the first time.
+// The first run only records a baseline, and a port must be seen on two
+// consecutive checks so short-lived listeners stay quiet.
+func (e *Engine) detectNewPorts(s Snapshot) {
+	if s.PortsErr != nil || len(s.Ports) == 0 {
+		return
+	}
+	if e.pending == nil {
+		e.pending = map[int]int{}
+	}
+	type np struct {
+		port  int
+		label string
+	}
+	var found []np
+	e.st.With(func(d *Data) {
+		if !d.Baselined {
+			d.Baselined = true
+			for _, p := range s.Ports {
+				d.Known[p.Port] = true
+			}
+			return
+		}
+		cur := map[int]bool{}
+		for _, p := range s.Ports {
+			cur[p.Port] = true
+			if d.Known[p.Port] {
+				continue
+			}
+			if e.pending[p.Port]++; e.pending[p.Port] < 2 {
+				continue
+			}
+			d.Known[p.Port] = true
+			delete(e.pending, p.Port)
+			if d.Watch[portKey(p.Port)] == nil {
+				found = append(found, np{p.Port, s.autoLabel(p.Port)})
+			}
+		}
+		for port := range e.pending {
+			if !cur[port] {
+				delete(e.pending, port)
+			}
+		}
+	})
+	for _, n := range found {
+		name := ":" + strconv.Itoa(n.port)
+		if n.label != "" {
+			name = n.label + " " + name
+		}
+		if e.notifyNew != nil {
+			e.notifyNew("🆕 <b>"+esc(name)+"</b> is now listening", n.port)
+		}
+	}
+}
+
 // displayLocked mirrors Display for callers already holding the store lock.
 func (e *Engine) displayLocked(d *Data, key string, s Snapshot) string {
 	kind, id := parseKey(key)
 	manual := d.Names[key]
-	if kind == "docker" {
+	if kind != "port" {
 		if manual != "" {
 			return manual + " (" + id + ")"
 		}

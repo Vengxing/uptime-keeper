@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -77,4 +78,38 @@ func ScanPorts() ([]PortInfo, error) {
 		return out, firstErr
 	}
 	return out, nil
+}
+
+// ScanProcs lists user processes that have a working directory other than "/",
+// which filters out most system daemons and kernel threads. Telegram bots use
+// outbound polling and open no port, so this is how they are found.
+func ScanProcs() []ProcInfo {
+	entries, _ := os.ReadDir("/proc")
+	self := os.Getpid()
+	var out []ProcInfo
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == self {
+			continue
+		}
+		b, err := os.ReadFile("/proc/" + e.Name() + "/cmdline")
+		if err != nil || len(b) == 0 {
+			continue
+		}
+		dir, err := os.Readlink("/proc/" + e.Name() + "/cwd")
+		if err != nil || dir == "/" || dir == "" {
+			continue
+		}
+		comm := ""
+		if c, err := os.ReadFile("/proc/" + e.Name() + "/comm"); err == nil {
+			comm = strings.TrimSpace(string(c))
+		}
+		if ignoredComm[comm] || strings.HasPrefix(comm, "-") {
+			continue
+		}
+		out = append(out, ProcInfo{PID: pid, Comm: comm,
+			Cmd: strings.TrimSpace(strings.ReplaceAll(string(b), "\x00", " ")), Dir: dir})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].PID < out[j].PID })
+	return out
 }
