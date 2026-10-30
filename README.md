@@ -47,6 +47,10 @@ Alerts: `🔴 my-bot :8080 DOWN` / `🟢 my-bot :8080 UP (down 4m)`. A target mu
 - systemd restarts it within 5s on crash, and on start it sends `🟢 watcher started` plus anything still down, so a silent restart is visible.
 - State is in `state.json`, so restarts do not re-alert.
 
+## Logging
+
+Nothing is logged for normal checks. A repeating error is logged at most once per 10 minutes (with a suppressed count), Telegram polling backs off up to 1 minute, and the systemd unit rate-limits the journal. A persistent failure cannot fill the disk. Check with `journalctl -u uptime-keeper --disk-usage`.
+
 ## Notes
 
 - Linux only for port discovery (reads `/proc`); run as root so owning processes are visible.

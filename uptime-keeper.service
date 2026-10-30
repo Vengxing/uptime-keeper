@@ -8,6 +8,9 @@ ExecStart=/opt/uptime-keeper/uptime-keeper -config /opt/uptime-keeper/config.jso
 WorkingDirectory=/opt/uptime-keeper
 Restart=always
 RestartSec=5
+# hard cap on log volume even if something misbehaves
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=20
 # runs as root so it can see which process owns each port and reach the Docker socket
 
 [Install]

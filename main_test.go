@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -185,5 +188,17 @@ func TestBotReason(t *testing.T) {
 	}
 	if botReason(false, []string{"PATH"}, "/srv/web nginx") != "" {
 		t.Error("expected not a bot")
+	}
+}
+
+func TestLogLimited(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	for i := 0; i < 1000; i++ {
+		logLimited("t-flood", "boom")
+	}
+	if n := strings.Count(buf.String(), "boom"); n != 1 {
+		t.Fatalf("expected 1 line, got %d", n)
 	}
 }

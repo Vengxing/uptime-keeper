@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -313,7 +312,7 @@ func (e *Engine) Tick(ctx context.Context) {
 		}
 	})
 	if err != nil {
-		log.Printf("save state: %v", err)
+		logLimited("save", "save state: %v", err)
 	}
 	for _, a := range alerts {
 		e.notify(a.text, a.key)
@@ -459,7 +458,7 @@ func (e *Engine) ping(ctx context.Context, suffix string) {
 	}
 	resp, err := e.http.Do(req)
 	if err != nil {
-		log.Printf("heartbeat: %v", err)
+		logLimited("heartbeat", "heartbeat: %v", err)
 		return
 	}
 	resp.Body.Close()

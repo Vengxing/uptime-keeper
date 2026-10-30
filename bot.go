@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -142,7 +141,7 @@ func (b *Bot) Send(ctx context.Context, text string, kb markup) {
 		}
 		if isPermanent(err) {
 			// retrying cannot help; tell the user what went wrong instead of staying silent
-			log.Printf("send rejected: %v", err)
+			logLimited("rejected", "send rejected: %v", err)
 			delete(p, "reply_markup")
 			p["parse_mode"] = ""
 			p["text"] = "⚠️ Could not display this: " + err.Error()
@@ -155,7 +154,7 @@ func (b *Bot) Send(ctx context.Context, text string, kb markup) {
 		case <-time.After(time.Duration(i+1) * 3 * time.Second):
 		}
 	}
-	log.Printf("send failed: %v", err)
+	logLimited("sendfail", "send failed: %v", err)
 }
 
 func (b *Bot) edit(ctx context.Context, chat int64, msgID int, text string, kb markup) {
@@ -164,7 +163,7 @@ func (b *Bot) edit(ctx context.Context, chat int64, msgID int, text string, kb m
 		p["reply_markup"] = safeKeyboard(kb)
 	}
 	if err := b.call(ctx, "editMessageText", p, nil); err != nil && !strings.Contains(err.Error(), "not modified") {
-		log.Printf("edit: %v", err)
+		logLimited("edit", "edit: %v", err)
 	}
 }
 
@@ -210,7 +209,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) {
 		{"command": "help", "description": "All commands"},
 	}
 	if err := b.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil); err != nil {
-		log.Printf("setMyCommands: %v", err)
+		logLimited("cmds", "setMyCommands: %v", err)
 	}
 	b.call(ctx, "setChatMenuButton", map[string]any{"menu_button": map[string]string{"type": "commands"}}, nil)
 }
@@ -218,6 +217,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) {
 func (b *Bot) Run(ctx context.Context) {
 	b.RegisterCommands(ctx)
 	offset := 0
+	backoff := 5 * time.Second
 	// skip any backlog so old commands are not replayed after a restart
 	var backlog []update
 	if err := b.call(ctx, "getUpdates", map[string]any{"offset": -1, "timeout": 0}, &backlog); err == nil && len(backlog) > 0 {
@@ -229,11 +229,15 @@ func (b *Bot) Run(ctx context.Context) {
 			"allowed_updates": []string{"message", "callback_query"}}, &ups)
 		if err != nil {
 			if ctx.Err() == nil {
-				log.Printf("poll: %v", err)
-				time.Sleep(5 * time.Second)
+				logLimited("poll", "poll: %v", err)
+				time.Sleep(backoff)
+				if backoff *= 2; backoff > time.Minute {
+					backoff = time.Minute
+				}
 			}
 			continue
 		}
+		backoff = 5 * time.Second
 		for _, u := range ups {
 			offset = u.ID + 1
 			go b.handle(ctx, u)
