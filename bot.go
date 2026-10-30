@@ -204,7 +204,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) {
 	cmds := []map[string]string{
 		{"command": "ports", "description": "Listening ports (tap to watch)"},
 		{"command": "docker", "description": "Docker containers (tap to watch)"},
-		{"command": "bots", "description": "Processes / Telegram bots (tap to watch)"},
+		{"command": "bots", "description": "Telegram bots (tap to watch)"},
 		{"command": "watching", "description": "What is being watched"},
 		{"command": "status", "description": "One-line summary"},
 		{"command": "help", "description": "All commands"},
@@ -305,8 +305,10 @@ func (b *Bot) command(ctx context.Context, msg string) (string, markup) {
 		return b.portsView(ctx)
 	case "/docker":
 		return b.dockerView(ctx)
-	case "/bots", "/procs":
-		return b.procsView(ctx)
+	case "/bots":
+		return b.procsView(ctx, false)
+	case "/procs":
+		return b.procsView(ctx, true)
 	case "/watching":
 		return b.watchingView(ctx)
 	case "/status":
@@ -483,12 +485,14 @@ func (b *Bot) dockerView(ctx context.Context) (string, markup) {
 	return sb.String(), keyboard(rows)
 }
 
-func (b *Bot) procsView(ctx context.Context) (string, markup) {
+func (b *Bot) procsView(ctx context.Context, all bool) (string, markup) {
 	s := b.eng.Snapshot(ctx)
 	type group struct {
 		name  string
 		n     int
 		first ProcInfo
+		bot   bool
+		why   string
 	}
 	groups := map[string]*group{}
 	for _, p := range s.Procs {
@@ -498,16 +502,25 @@ func (b *Bot) procsView(ctx context.Context) (string, markup) {
 			groups[p.Name()] = g
 		}
 		g.n++
+		if p.Bot && !g.bot {
+			g.bot, g.why = true, p.Why
+		}
 	}
 	names := make([]string, 0, len(groups))
-	for n := range groups {
-		names = append(names, n)
+	for n, g := range groups {
+		if all || g.bot || b.isWatched(procKey(n)) {
+			names = append(names, n)
+		}
 	}
 	sort.Strings(names)
 	var sb strings.Builder
 	var rows [][]button
 	var row []button
-	fmt.Fprintf(&sb, "<b>Processes (%d)</b>\n", len(names))
+	title := "Telegram bots"
+	if all {
+		title = "All processes"
+	}
+	fmt.Fprintf(&sb, "<b>%s (%d)</b>\n", title, len(names))
 	listed := map[string]bool{}
 	addBtn := func(key, name string) {
 		row = append(row, toggleBtn(key, name, b.isWatched(key)))
@@ -520,7 +533,11 @@ func (b *Bot) procsView(ctx context.Context) (string, markup) {
 		g := groups[n]
 		listed[n] = true
 		key := procKey(n)
-		line := fmt.Sprintf("%s %s · %s", watchMark(b.isWatched(key)), esc(n), esc(g.first.Comm))
+		detail := g.first.Comm
+		if g.bot && !all {
+			detail = g.why
+		}
+		line := fmt.Sprintf("%s %s · %s", watchMark(b.isWatched(key)), esc(n), esc(detail))
 		if g.n > 1 {
 			line += fmt.Sprintf(" ×%d", g.n)
 		}
@@ -548,7 +565,11 @@ func (b *Bot) procsView(ctx context.Context) (string, markup) {
 	if len(names) == 0 && len(missing) == 0 {
 		sb.WriteString("none found\n")
 	}
-	sb.WriteString("<i>Named by working directory. Bots that only poll Telegram open no port, so watch them here.</i>")
+	if all {
+		sb.WriteString("<i>Named by working directory.</i>")
+	} else {
+		sb.WriteString("<i>A process counts as a bot if it is connected to Telegram, has a TELEGRAM/BOT_TOKEN env var, or has \"telegram\" in its dir/command. Missing yours? Use /procs.</i>")
+	}
 	return sb.String(), keyboard(rows)
 }
 
@@ -685,7 +706,7 @@ func (b *Bot) callback(ctx context.Context, data string) (string, string, markup
 		case "docker":
 			text, kb = b.dockerView(ctx)
 		case "proc":
-			text, kb = b.procsView(ctx)
+			text, kb = b.procsView(ctx, false)
 		default:
 			text, kb = b.portsView(ctx)
 		}

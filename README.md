@@ -26,7 +26,8 @@ Commands appear in Telegram's `/` menu (registered on every start).
 | Command | What it does |
 |---|---|
 | `/ports` | Listening ports with name and working dir. Tap to watch/unwatch (✅ = watched, ➖ = not watched; tap to flip) |
-| `/bots` | Running processes (named by working dir). Use this for Telegram bots and anything that opens no port |
+| `/bots` | Detected Telegram bots (named by working dir). A process counts if it is connected to Telegram, has a `TELEGRAM*`/`BOT_TOKEN` env var, or has "telegram" in its dir/command |
+| `/procs` | All running processes, for anything `/bots` misses |
 | `/docker` | Containers. Tap to watch/unwatch (✅ = watched, ➖ = not watched; tap to flip) |
 | `/watching` | Watchlist with state, tap for details |
 | `/status` | One-line summary |

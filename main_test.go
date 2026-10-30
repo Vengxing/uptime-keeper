@@ -159,3 +159,31 @@ func TestTelegramLimits(t *testing.T) {
 		t.Fatalf("not truncated: %d", len(out))
 	}
 }
+
+func TestParseTelegramSockets(t *testing.T) {
+	in := `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:9C40 DCA79A95:01BB 01 00000000:00000000 00:00000000 00000000     0        0 111 1
+   1: 0100007F:9C41 0100007F:1F90 01 00000000:00000000 00:00000000 00000000     0        0 222 1
+   2: 0100007F:9C42 DCA79A95:01BB 06 00000000:00000000 00:00000000 00000000     0        0 333 1
+`
+	got := parseTelegramSockets(strings.NewReader(in))
+	if len(got) != 1 || !got[111] {
+		t.Fatalf("got %v", got)
+	}
+	in6 := `  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0000000000000000FFFF00000100007F:9C40 0000000000000000FFFF0000DCA79A95:01BB 01 00000000:00000000 00:00000000 00000000     0        0 444 1
+`
+	if got := parseTelegramSockets(strings.NewReader(in6)); !got[444] {
+		t.Fatalf("mapped ipv6 not detected: %v", got)
+	}
+}
+
+func TestBotReason(t *testing.T) {
+	if botReason(true, nil, "") == "" || botReason(false, []string{"PATH", "BOT_TOKEN"}, "") == "" ||
+		botReason(false, nil, "/srv/telegram-quicktask node") == "" {
+		t.Error("expected bot")
+	}
+	if botReason(false, []string{"PATH"}, "/srv/web nginx") != "" {
+		t.Error("expected not a bot")
+	}
+}

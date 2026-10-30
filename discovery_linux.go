@@ -84,6 +84,15 @@ func ScanPorts() ([]PortInfo, error) {
 // which filters out most system daemons and kernel threads. Telegram bots use
 // outbound polling and open no port, so this is how they are found.
 func ScanProcs() []ProcInfo {
+	tg := map[uint64]bool{}
+	for _, f := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		if fh, err := os.Open(f); err == nil {
+			for k := range parseTelegramSockets(fh) {
+				tg[k] = true
+			}
+			fh.Close()
+		}
+	}
 	entries, _ := os.ReadDir("/proc")
 	self := os.Getpid()
 	var out []ProcInfo
@@ -107,9 +116,46 @@ func ScanProcs() []ProcInfo {
 		if ignoredComm[comm] || strings.HasPrefix(comm, "-") {
 			continue
 		}
-		out = append(out, ProcInfo{PID: pid, Comm: comm,
-			Cmd: strings.TrimSpace(strings.ReplaceAll(string(b), "\x00", " ")), Dir: dir})
+		cmd := strings.TrimSpace(strings.ReplaceAll(string(b), "\x00", " "))
+		p := ProcInfo{PID: pid, Comm: comm, Cmd: cmd, Dir: dir}
+		p.Why = botReason(connectedToTelegram(e.Name(), tg), environKeys(e.Name()), dir+" "+cmd)
+		p.Bot = p.Why != ""
+		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PID < out[j].PID })
 	return out
+}
+
+func connectedToTelegram(pid string, tg map[uint64]bool) bool {
+	if len(tg) == 0 {
+		return false
+	}
+	fds, err := os.ReadDir("/proc/" + pid + "/fd")
+	if err != nil {
+		return false
+	}
+	for _, fd := range fds {
+		link, err := os.Readlink("/proc/" + pid + "/fd/" + fd.Name())
+		if err != nil || !strings.HasPrefix(link, "socket:[") {
+			continue
+		}
+		if inode, err := strconv.ParseUint(strings.TrimSuffix(link[len("socket:["):], "]"), 10, 64); err == nil && tg[inode] {
+			return true
+		}
+	}
+	return false
+}
+
+func environKeys(pid string) []string {
+	b, err := os.ReadFile("/proc/" + pid + "/environ")
+	if err != nil {
+		return nil
+	}
+	var keys []string
+	for _, kv := range strings.Split(string(b), "\x00") {
+		if i := strings.Index(kv, "="); i > 0 {
+			keys = append(keys, kv[:i])
+		}
+	}
+	return keys
 }
