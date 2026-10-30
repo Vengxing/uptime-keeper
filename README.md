@@ -25,8 +25,8 @@ Commands appear in Telegram's `/` menu (registered on every start).
 
 | Command | What it does |
 |---|---|
-| `/ports` | Listening ports with name and working dir. Tap to watch/unwatch (🔔 = tap to watch, ✅ = watched, tap to stop) |
-| `/docker` | Containers. Tap to watch/unwatch (🔔 = tap to watch, ✅ = watched, tap to stop) |
+| `/ports` | Listening ports with name and working dir. Tap to watch/unwatch (✅ = watched, ➖ = not watched; tap to flip) |
+| `/docker` | Containers. Tap to watch/unwatch (✅ = watched, ➖ = not watched; tap to flip) |
 | `/watching` | Watchlist with state, tap for details |
 | `/status` | One-line summary |
 | `/watch <port or container>` / `/unwatch ...` | Manage the watchlist |

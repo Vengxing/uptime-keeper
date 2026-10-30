@@ -311,7 +311,7 @@ func toggleBtn(key, text string, watched bool) button {
 	if watched {
 		return button{"✅ " + text, "u:" + key}
 	}
-	return button{"🔔 " + text, "w:" + key}
+	return button{"➖ " + text, "w:" + key}
 }
 
 func (b *Bot) portsView(ctx context.Context) (string, markup) {
@@ -373,7 +373,7 @@ func watchMark(w bool) string {
 	if w {
 		return "✅"
 	}
-	return "⚪"
+	return "➖"
 }
 
 func (b *Bot) dockerView(ctx context.Context) (string, markup) {
