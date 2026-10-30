@@ -21,10 +21,12 @@ Small Go service for a VPS. It discovers listening ports and Docker containers, 
 
 ## Using it
 
+Commands appear in Telegram's `/` menu (registered on every start).
+
 | Command | What it does |
 |---|---|
-| `/ports` | Listening ports with name and working dir. Tap to watch/unwatch |
-| `/docker` | Containers. Tap to watch/unwatch |
+| `/ports` | Listening ports with name and working dir. Tap to watch/unwatch (🔔 = tap to watch, ✅ = watched, tap to stop) |
+| `/docker` | Containers. Tap to watch/unwatch (🔔 = tap to watch, ✅ = watched, tap to stop) |
 | `/watching` | Watchlist with state, tap for details |
 | `/status` | One-line summary |
 | `/watch <port or container>` / `/unwatch ...` | Manage the watchlist |

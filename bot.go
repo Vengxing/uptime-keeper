@@ -128,7 +128,24 @@ type update struct {
 	} `json:"callback_query"`
 }
 
+// RegisterCommands fills Telegram's "/" menu. Only commands without
+// arguments are listed; the others are in /help.
+func (b *Bot) RegisterCommands(ctx context.Context) {
+	cmds := []map[string]string{
+		{"command": "ports", "description": "Listening ports (tap to watch)"},
+		{"command": "docker", "description": "Docker containers (tap to watch)"},
+		{"command": "watching", "description": "What is being watched"},
+		{"command": "status", "description": "One-line summary"},
+		{"command": "help", "description": "All commands"},
+	}
+	if err := b.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil); err != nil {
+		log.Printf("setMyCommands: %v", err)
+	}
+	b.call(ctx, "setChatMenuButton", map[string]any{"menu_button": map[string]string{"type": "commands"}}, nil)
+}
+
 func (b *Bot) Run(ctx context.Context) {
+	b.RegisterCommands(ctx)
 	offset := 0
 	// skip any backlog so old commands are not replayed after a restart
 	var backlog []update
@@ -236,7 +253,7 @@ func (b *Bot) command(ctx context.Context, msg string) (string, markup) {
 		switch cmd {
 		case "/watch":
 			b.eng.AddWatch(ctx, key)
-			return "👁 Watching " + esc(b.eng.Display(key, s)) + " — " + b.stateOf(key), nil
+			return "✅ Watching " + esc(b.eng.Display(key, s)) + " — " + b.stateOf(key), nil
 		case "/unwatch":
 			if b.eng.RemoveWatch(key) {
 				return "Stopped watching " + esc(b.eng.Display(key, s)), nil
@@ -292,9 +309,9 @@ func (b *Bot) isWatched(key string) bool {
 
 func toggleBtn(key, text string, watched bool) button {
 	if watched {
-		return button{"➖ " + text, "u:" + key}
+		return button{"✅ " + text, "u:" + key}
 	}
-	return button{"➕ " + text, "w:" + key}
+	return button{"🔔 " + text, "w:" + key}
 }
 
 func (b *Bot) portsView(ctx context.Context) (string, markup) {
@@ -343,7 +360,7 @@ func (b *Bot) portsView(ctx context.Context) (string, markup) {
 	})
 	sort.Ints(missing)
 	for _, n := range missing {
-		fmt.Fprintf(&sb, "🔴 <code>%d</code> %s (not listening) 👁\n", n, esc(b.eng.Label(portKey(n), s)))
+		fmt.Fprintf(&sb, "🔴 <code>%d</code> %s (not listening) ✅\n", n, esc(b.eng.Label(portKey(n), s)))
 		add(portKey(n), strconv.Itoa(n))
 	}
 	if row != nil {
@@ -354,9 +371,9 @@ func (b *Bot) portsView(ctx context.Context) (string, markup) {
 
 func watchMark(w bool) string {
 	if w {
-		return "👁"
+		return "✅"
 	}
-	return "•"
+	return "⚪"
 }
 
 func (b *Bot) dockerView(ctx context.Context) (string, markup) {
