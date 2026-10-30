@@ -1,0 +1,14 @@
+[Unit]
+Description=uptime-keeper (ports/docker watcher with Telegram alerts)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/uptime-keeper/uptime-keeper -config /opt/uptime-keeper/config.json
+WorkingDirectory=/opt/uptime-keeper
+Restart=always
+RestartSec=5
+# runs as root so it can see which process owns each port and reach the Docker socket
+
+[Install]
+WantedBy=multi-user.target

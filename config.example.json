@@ -1,0 +1,7 @@
+{
+  "telegram_token": "123456:ABC-from-BotFather",
+  "chat_id": 0,
+  "healthchecks_url": "https://hc-ping.com/your-uuid",
+  "interval_sec": 30,
+  "fail_threshold": 3
+}
