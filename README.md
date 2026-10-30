@@ -11,6 +11,7 @@ Small Go service for a VPS. It discovers listening ports and Docker containers, 
    git clone <your-repo> && cd uptime-keeper && sudo ./setup.sh
    ```
    Update later: `git pull && sudo ./setup.sh` (keeps your config, rebuilds, restarts).
+   Restart only (e.g. after editing `/opt/uptime-keeper/config.json`): `sudo ./restart.sh`.
 4. Or pre-create `config.json` (see `config.example.json`) before running `setup.sh` to skip the prompts.
 5. Message your bot anything. It replies with your chat id. Put it in `/opt/uptime-keeper/config.json` as `chat_id`, then `systemctl restart uptime-keeper`. Only that chat is ever answered.
 
