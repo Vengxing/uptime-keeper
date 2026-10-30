@@ -6,27 +6,34 @@ set -euo pipefail
 
 APP=/opt/uptime-keeper
 cd "$(dirname "$0")"
-
 [ "$(id -u)" -eq 0 ] || { echo "run as root: sudo ./setup.sh"; exit 1; }
 command -v systemctl >/dev/null || { echo "systemd is required"; exit 1; }
 
-# Go is needed to build; install it if missing or too old (needs >= 1.21)
-need_go() {
-  command -v go >/dev/null || return 0
-  local v; v=$(go env GOVERSION | sed 's/^go//')
-  [ "$(printf '%s\n1.21\n' "$v" | sort -V | head -1)" != "1.21" ]
+# Uses the system Go if it is >= 1.21. Otherwise downloads a private copy into
+# $TOOLCHAIN. The system Go (/usr/local/go etc.) is never modified.
+TOOLCHAIN=/opt/uptime-keeper-go
+go_ok() {
+  command -v go >/dev/null || return 1
+  local v; v=$(go env GOVERSION 2>/dev/null | sed 's/^go//') || return 1
+  [ -n "$v" ] && [ "$(printf '%s\n1.21\n' "$v" | sort -V | head -1)" = "1.21" ]
 }
-if need_go; then
-  command -v curl >/dev/null || { echo "curl is required to install Go"; exit 1; }
-  case "$(uname -m)" in
-    x86_64) GOARCH=amd64 ;;
-    aarch64|arm64) GOARCH=arm64 ;;
-    *) echo "unsupported arch $(uname -m)"; exit 1 ;;
-  esac
-  GOVER=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)
-  echo "installing $GOVER ..."
-  curl -fsSL "https://go.dev/dl/${GOVER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
-  export PATH=$PATH:/usr/local/go/bin
+if ! go_ok; then
+  export PATH=$TOOLCHAIN/go/bin:$PATH
+  if ! go_ok; then
+    command -v curl >/dev/null || { echo "curl is required to install Go"; exit 1; }
+    case "$(uname -m)" in
+      x86_64) GOARCH=amd64 ;;
+      aarch64|arm64) GOARCH=arm64 ;;
+      *) echo "unsupported arch $(uname -m)"; exit 1 ;;
+    esac
+    GOVER=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)
+    echo "downloading private $GOVER to $TOOLCHAIN ..."
+    TMP=$(mktemp)
+    curl -fsSL "https://go.dev/dl/${GOVER}.linux-${GOARCH}.tar.gz" -o "$TMP"
+    rm -rf "$TOOLCHAIN"; mkdir -p "$TOOLCHAIN"
+    tar -C "$TOOLCHAIN" -xzf "$TMP"
+    rm -f "$TMP"
+  fi
 fi
 
 echo "building ..."
