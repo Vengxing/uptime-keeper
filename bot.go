@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func esc(s string) string { return html.EscapeString(s) }
@@ -60,12 +62,66 @@ func (b *Bot) call(ctx context.Context, method string, payload any, out any) err
 		return err
 	}
 	if !env.OK {
-		return fmt.Errorf("%s: %s", method, env.Description)
+		return &apiError{method: method, desc: env.Description, retryable: resp.StatusCode >= 500 || resp.StatusCode == 429}
 	}
 	if out != nil {
 		return json.Unmarshal(env.Result, out)
 	}
 	return nil
+}
+
+type apiError struct {
+	method, desc string
+	retryable    bool
+}
+
+func (e *apiError) Error() string { return e.method + ": " + e.desc }
+
+func isPermanent(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && !ae.retryable
+}
+
+const (
+	maxMsgLen  = 3800
+	maxDataLen = 64
+)
+
+// fit shortens text to Telegram's message limit at a line boundary.
+func fit(text string) string {
+	if len(text) <= maxMsgLen {
+		return text
+	}
+	cut := strings.LastIndex(text[:maxMsgLen], "\n")
+	if cut < 0 {
+		cut = maxMsgLen
+	}
+	for cut > 0 && !utf8.ValidString(text[:cut]) {
+		cut--
+	}
+	return text[:cut] + "\n… (list truncated)"
+}
+
+// safeKeyboard drops buttons whose callback data exceeds Telegram's 64-byte
+// limit; one oversized button makes Telegram reject the whole message.
+func safeKeyboard(kb markup) markup {
+	rows, ok := kb["inline_keyboard"].([][]button)
+	if !ok {
+		return kb
+	}
+	var out [][]button
+	for _, r := range rows {
+		var nr []button
+		for _, bt := range r {
+			if len(bt.Data) <= maxDataLen {
+				nr = append(nr, bt)
+			}
+		}
+		if len(nr) > 0 {
+			out = append(out, nr)
+		}
+	}
+	return keyboard(out)
 }
 
 func stripToken(s, token string) string { return strings.ReplaceAll(s, token, "<token>") }
@@ -75,13 +131,22 @@ func (b *Bot) Send(ctx context.Context, text string, kb markup) {
 	if b.cfg.ChatID == 0 {
 		return
 	}
-	p := map[string]any{"chat_id": b.cfg.ChatID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": true}
+	p := map[string]any{"chat_id": b.cfg.ChatID, "text": fit(text), "parse_mode": "HTML", "disable_web_page_preview": true}
 	if kb != nil {
-		p["reply_markup"] = kb
+		p["reply_markup"] = safeKeyboard(kb)
 	}
 	var err error
 	for i := 0; i < 4; i++ {
 		if err = b.call(ctx, "sendMessage", p, nil); err == nil {
+			return
+		}
+		if isPermanent(err) {
+			// retrying cannot help; tell the user what went wrong instead of staying silent
+			log.Printf("send rejected: %v", err)
+			delete(p, "reply_markup")
+			p["parse_mode"] = ""
+			p["text"] = "⚠️ Could not display this: " + err.Error()
+			b.call(ctx, "sendMessage", p, nil)
 			return
 		}
 		select {
@@ -94,9 +159,9 @@ func (b *Bot) Send(ctx context.Context, text string, kb markup) {
 }
 
 func (b *Bot) edit(ctx context.Context, chat int64, msgID int, text string, kb markup) {
-	p := map[string]any{"chat_id": chat, "message_id": msgID, "text": text, "parse_mode": "HTML"}
+	p := map[string]any{"chat_id": chat, "message_id": msgID, "text": fit(text), "parse_mode": "HTML"}
 	if kb != nil {
-		p["reply_markup"] = kb
+		p["reply_markup"] = safeKeyboard(kb)
 	}
 	if err := b.call(ctx, "editMessageText", p, nil); err != nil && !strings.Contains(err.Error(), "not modified") {
 		log.Printf("edit: %v", err)
@@ -171,7 +236,7 @@ func (b *Bot) Run(ctx context.Context) {
 		}
 		for _, u := range ups {
 			offset = u.ID + 1
-			b.handle(ctx, u)
+			go b.handle(ctx, u)
 		}
 	}
 }

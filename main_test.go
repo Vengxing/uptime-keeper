@@ -146,3 +146,16 @@ func TestProcCheck(t *testing.T) {
 		t.Error("expected down")
 	}
 }
+
+func TestTelegramLimits(t *testing.T) {
+	long := strings.Repeat("x", 100)
+	kb := safeKeyboard(keyboard([][]button{{{"ok", "w:proc:a"}, {"bad", "w:proc:" + long}}, {{"bad2", long}}}))
+	rows := kb["inline_keyboard"].([][]button)
+	if len(rows) != 1 || len(rows[0]) != 1 || rows[0][0].Text != "ok" {
+		t.Fatalf("oversized buttons must be dropped: %+v", rows)
+	}
+	text := strings.Repeat("line\n", 2000)
+	if out := fit(text); len(out) > 4096 || !strings.HasSuffix(out, "truncated)") {
+		t.Fatalf("not truncated: %d", len(out))
+	}
+}
